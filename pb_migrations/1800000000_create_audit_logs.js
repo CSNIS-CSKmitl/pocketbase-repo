@@ -1,7 +1,8 @@
 // Direct actor fields; no global audit_logs collection or hook.
 const targets = [
-	['announcements', true], ['instances', false], ['bookings', true],
-	['loan_requests', true], ['print_jobs', false], ['items', false], ['rooms', false]
+	['announcements', true], ['instances', true], ['bookings', true],
+	['loan_requests', true], ['print_jobs', false], ['items', false], ['rooms', false],
+	['services', false], ['passion_group', false]
 ];
 
 migrate((app) => {

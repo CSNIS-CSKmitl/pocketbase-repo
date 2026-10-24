@@ -3,12 +3,21 @@
 const AUDITED = new Set(['instances', 'bookings', 'loan_requests', 'print_jobs', 'rooms', 'items', 'announcements']);
 const SERVICE = { instances: 'initd', bookings: 'booking', loan_requests: 'borrowly', print_jobs: 'printer-server', rooms: 'booking', items: 'borrowly', announcements: 'announcements' };
 const OMIT = new Set(['password', 'passwordConfirm', 'token', 'refreshToken', 'accessToken']);
+const SNAPSHOT_FIELDS = {
+	instances: ['name', 'status', 'ip', 'type', 'user_id'],
+	bookings: ['field', 'date', 'start_time', 'end_time', 'title', 'bookerName', 'bookerEmail', 'booker_id', 'advisorName', 'detailLabel', 'status'],
+	loan_requests: ['requester', 'borrowerName', 'email', 'dueDate', 'note', 'teacher', 'caretaker', 'status'],
+	print_jobs: ['user', 'file_name', 'status', 'printer', 'copies'],
+	rooms: ['name', 'status', 'location'],
+	items: ['name', 'status', 'quantity', 'owner'],
+	announcements: ['title', 'content', 'status', 'published', 'targets']
+};
 
 function snapshot(record) {
 	const result = {};
-	for (const field of record.collection().fields || []) {
-		const name = field.name;
-		if (OMIT.has(name) || name === 'created' || name === 'updated') continue;
+	const names = SNAPSHOT_FIELDS[record.collection().name] || [];
+	for (const name of names) {
+		if (OMIT.has(name)) continue;
 		try { result[name] = record.get(name); } catch (_) { /* ignore unsupported field */ }
 	}
 	return result;
@@ -37,15 +46,18 @@ function writeAudit(event, action, before, after) {
 		if (has('metadata')) log.set('metadata', { status: after?.status || before?.status || null });
 		event.app.save(log);
 	} catch (error) {
-		event.app.logger().error('Audit log write failed', 'collection', name, 'recordId', event.record.id, 'error', error);
+		try { event.app.logger().error('Audit log write failed', 'collection', name, 'recordId', event.record.id, 'error', error); } catch (_) { /* audit must never break the source operation */ }
 	}
 }
 
-onRecordAfterCreateSuccess((e) => { writeAudit(e, 'create', null, snapshot(e.record)); e.next(); });
+onRecordAfterCreateSuccess((e) => { try { writeAudit(e, 'create', null, snapshot(e.record)); } catch (_) { /* fail-open */ } e.next(); });
 onRecordAfterUpdateSuccess((e) => {
-	const before = snapshot(e.record.original());
-	const after = snapshot(e.record);
-	const action = before.status !== after.status ? `status:${before.status || ''}->${after.status || ''}` : 'update';
-	writeAudit(e, action, before, after); e.next();
+	try {
+		const before = snapshot(e.record.original());
+		const after = snapshot(e.record);
+		const action = before.status !== after.status ? `status:${before.status || ''}->${after.status || ''}` : 'update';
+		writeAudit(e, action, before, after);
+	} catch (_) { /* fail-open */ }
+	e.next();
 });
-onRecordAfterDeleteSuccess((e) => { writeAudit(e, 'delete', snapshot(e.record), null); e.next(); });
+onRecordAfterDeleteSuccess((e) => { try { writeAudit(e, 'delete', snapshot(e.record), null); } catch (_) { /* fail-open */ } e.next(); });
